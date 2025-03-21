@@ -45,6 +45,7 @@ class MediaClone(BaseOperation):
     async def _create_group(self, client: Client, name: str, users_admin: list = None):
         chat_title = name.replace("-", " ").replace("_", " ")
         # TODO -  prefix in config
+        # TODO - vitrine
         new_channel = await client.create_channel(title=f"#DRIVE - {chat_title}")
         invite_link = await client.export_chat_invite_link(new_channel.id)
         new_description = f"{chat_title}\n\n📌 Link de Convite: {invite_link}"
@@ -112,7 +113,7 @@ class MediaClone(BaseOperation):
             messages = await get_chat_history(
                 client=self.client,
                 origin_chat_id=origin_chat.id,
-                last_msg_id=last_msg_id,
+                from_msg_id=last_msg_id,
             )
 
             total_movidos = 0
@@ -123,6 +124,10 @@ class MediaClone(BaseOperation):
             self.spinner.text = f"Clonando mensagens 0/{total_messages}"
             for message in messages:
                 try:
+                    # Ignora mensagens de serviço
+                    # if isinstance(message, MessageService):
+                    #     continue
+                    
                     # Se o chat de destino tiver conteúdo protegido, não é possível encaminhar;
                     # portanto, copiamos o conteúdo manualmente.
                     if protected:
@@ -134,10 +139,10 @@ class MediaClone(BaseOperation):
                                 self.spinner.text = (
                                     f"{args[0]} {current_mb:.2f}/{total_mb:.2f}MB"
                                 )
-
+                            media_name = await super().get_media_name(message)
                             file_path = await self.client.download_media(
                                 message,
-                                file_name=path_download,
+                                file_name=f'{path_download}/{message.id}-{media_name}',
                                 progress=progress,
                                 progress_args=(
                                     [f"Baixando mensagem ID{message.id} |"],
@@ -152,8 +157,8 @@ class MediaClone(BaseOperation):
                             # Envia a mídia para o chat de destino.
                             # Você pode personalizar: se a mídia for foto, use send_photo, etc.
                             # if message.media.DOCUMENT:
-                            await self.client.send_document(
-                                chat_id=self.destination_chat_id,
+                            await super().send(
+                                message=message,
                                 document=file_path,
                                 caption=message.caption or "",
                                 progress=progress,
@@ -174,6 +179,7 @@ class MediaClone(BaseOperation):
                             chat_id=self.destination_chat_id,
                             from_chat_id=origin_chat.id,
                             message_ids=message.id,
+                            drop_author=True
                         )
                     logger.info(f"Mensagem {message.id} processada com sucesso.")
                     time.sleep(2)

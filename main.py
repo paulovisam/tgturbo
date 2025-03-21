@@ -6,8 +6,12 @@ from src.progress_tracker import ProgressTracker
 
 from src.operations.media_clone import MediaClone
 from src.operations.media_downloader import MediaDownloader
+from src.operations.media_downup import MediaDownUp
 from src.interface.menu import menu
+from src.schemas import InputModel
+import os
 
+#TODO - Verificar se já existe arquivo antes de baixar
 
 async def main():
     # Função principal e configuração da linha de comando
@@ -19,8 +23,6 @@ async def main():
     # Crie e inicie o cliente Pyrogram. Altere "my_account" conforme sua sessão/configuração.
     async with Client("user") as client:
         if args.action == "clone":
-            # args.origin_id = 'https://t.me/+wG-XmNSxUXwxZTAx'
-            args.origin_id = 'https://t.me/+1R6h0lBM2CM3MDFh'
             mover = MediaClone(
                 client=client,
                 origin_chat_id=args.origin_id,
@@ -28,13 +30,23 @@ async def main():
                 progress_tracker=progress_tracker,
             )
             await mover.run()
+
         elif args.action == "download":
             downloader = MediaDownloader(
-                client=client, chat_id=args.origin_id, progress_tracker=progress_tracker
+                client=client,
+                origin_chat_id=args.origin_id, progress_tracker=progress_tracker
             )
             await downloader.run()
         elif args.action == "upload":
             pass
+        elif args.action == "downup":
+            downup = MediaDownUp(
+                client=client,
+                origin_chat_id=args.origin_id,
+                destination_chat_id=args.dest_id,
+                progress_tracker=progress_tracker,
+            )
+            await downup.run()
 
 
 if __name__ == "__main__":

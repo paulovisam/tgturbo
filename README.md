@@ -4,6 +4,8 @@ TgTurbo
 
 TgTurbo é um projeto desenvolvido para facilitar a manipulação de mídias em plataformas de mensagens. Este projeto visa otimizar a experiência do usuário ao interagir com arquivos de mídia.
 
+![Imagem](assets/image.png)
+
 ## Índice
 
 - [Instalação](#instalação)

@@ -13,7 +13,7 @@ async def menu() -> InputModel:
         input_model = InputModel()
         input_model.action = await inquirer.rawlist(
             message="O que deseja fazer hoje:",
-            choices=["Clone", "Download", "Upload"],
+            choices=["Clone", "Download", "Upload", "Down_Up"],
         ).execute_async()
         input_model.action = input_model.action.lower() 
 
@@ -39,6 +39,15 @@ async def menu() -> InputModel:
                 validate=PathValidator(is_dir=True, message="Caminho inválido"),
                 default=home_path,
                 only_directories=True,
+            ).execute_async()
+        elif input_model.action == "down_up":
+            input_model.origin_id = await inquirer.text(
+                message="Insira o ID do chat para baixar:",
+            ).execute_async()
+            input_model.dest_id = await inquirer.text(
+                message="Insira o ID do chat para enviar:",
+                instruction="(Enter para criar)",
+                default="",
             ).execute_async()
 
         input_model.confirm = await inquirer.confirm(message="Confimar?", default=True).execute_async()

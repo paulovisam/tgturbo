@@ -39,7 +39,7 @@ async def main():
             await downloader.run()
         elif args.action == "upload":
             pass
-        elif args.action == "downup":
+        elif args.action == "down_up":
             downup = MediaDownUp(
                 client=client,
                 origin_chat_id=args.origin_id,

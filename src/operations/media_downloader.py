@@ -1,17 +1,26 @@
 from .base import BaseOperation
 from pyrogram.client import Client
+from pyrogram.errors import FileReferenceExpired
 from halo import Halo
 from src.progress_tracker import ProgressTracker
 from src.log import logger
-from src.utils import create_path
+from src.utils import create_path, get_chat_history
 
 
 class MediaDownloader(BaseOperation):
     """Operação: Baixar mídias de um grupo"""
 
-    def __init__(self, client: Client, chat_id: int, progress_tracker: ProgressTracker):
+    def __init__(self, client: Client, origin_chat_id: int, progress_tracker: ProgressTracker):
         super().__init__(client, progress_tracker)
-        self.chat_id = chat_id
+        self.origin_chat_id = origin_chat_id
+        self.is_media_downloaded = [
+            "audio",
+            "document",
+            "photo",
+            "video",
+            "voice",
+            "video_note",
+        ]
         self.spinner = Halo(
             text="Preparando operação de download de mídias...", spinner="dots"
         )
@@ -19,12 +28,12 @@ class MediaDownloader(BaseOperation):
 
     async def run(self):
 
-        chat = self.client.get_chat(self.chat_id)
+        chat = await self.client.get_chat(self.origin_chat_id)
         path_download = create_path(f"./downloads/{chat.title}")
 
         # Recupera o último message_id processado (para retomar)
         last_msg_id = self.progress_tracker.get_last_message_id(
-            op="download", chat_id=self.chat_id
+            op="download", chat_id=self.origin_chat_id
         )
         self.spinner.succeed(f"Baixando {chat.title}").start()
         if last_msg_id > 0:
@@ -33,13 +42,11 @@ class MediaDownloader(BaseOperation):
             logger.info(msg)
 
         try:
-            messages = []
-            async for message in self.client.get_chat_history(
-                self.origin_chat_id,
-                offset_id=last_msg_id,
-            ):
-                messages.append(message)
-            messages.reverse()
+            messages = await get_chat_history(
+                client=self.client,
+                origin_chat_id=self.origin_chat_id,
+                from_msg_id=last_msg_id,
+            )
 
             total_messages = len(messages)
             total_download = 0
@@ -51,40 +58,49 @@ class MediaDownloader(BaseOperation):
 
             self.spinner.text = f"Baixando mensagens 0/{total_messages}"
             for message in messages:
-                if message.media:
+                if getattr(message.media, "value", None) in self.is_media_downloaded:
                     try:
-
                         def progress(current, total, args):
                             total_mb = (total / 1024) / 1024
                             current_mb = (current / 1024) / 1024
                             self.spinner.text = (
                                 f"{args[0]} {current_mb:.2f}/{total_mb:.2f}MB"
                             )
-
+                        media_name = await super().get_media_name(message)
+                        
+                        #Atualizar mensagem para obter o caminho do arquivo
+                        message = await self.client.get_messages(
+                            chat_id=self.origin_chat_id,
+                            message_ids=message.id,
+                        )
                         file_path = await self.client.download_media(
-                            message,
-                            file_name=path_download,
+                            message=message,
+                            file_name=f'{path_download}/{message.id}-{media_name}',
                             progress=progress,
                             progress_args=([f"Baixando mensagem ID{message.id} |"],),
                         )
                         if file_path:
                             logger.info(
-                                f"Mídia da mensagem {message.message_id} baixada em {file_path}"
+                                f"Mídia da mensagem {message.id} baixada em {file_path}"
                             )
                         else:
                             logger.warning(
-                                f"Falha ao baixar mídia da mensagem {message.message_id}"
+                                f"Falha ao baixar mídia da mensagem {message.id}"
                             )
                     except Exception as media_err:
                         logger.error(
-                            f"Erro ao baixar mídia da mensagem {message.message_id}: {media_err}"
+                            f"Erro ao baixar mídia da mensagem {message.id}: {media_err}"
                         )
+                        raise media_err
                 # Atualiza o progresso
                 self.progress_tracker.update(
-                    "download", self.chat_id, None, message.message_id
+                    "download", self.origin_chat_id, None, message.id
                 )
                 total_download += 1
+        except FileReferenceExpired as e:
+            logger.error(f"Erro ao baixar mídia: {e}")
         except Exception as e:
             logger.error(f"Erro ao iterar sobre o histórico do chat: {e}")
+            raise e
         finally:
             self.spinner.succeed("Operação de download de mídias concluída.")

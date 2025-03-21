@@ -1,5 +1,5 @@
 halo
 pyfiglet
 colorama
-pyrogram
+https://github.com/paulovisam/pyrogram/archive/refs/heads/master.zip
 PyInquirer

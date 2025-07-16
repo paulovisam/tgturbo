@@ -13,7 +13,7 @@ async def menu() -> InputModel:
         input_model = InputModel()
         input_model.action = await inquirer.rawlist(
             message="O que deseja fazer hoje:",
-            choices=["Clone", "Download", "Upload", "Down_Up"],
+            choices=["Clone", "Download Chat", "Download Media", "Upload", "Down_Up"],
         ).execute_async()
         input_model.action = input_model.action.lower() 
 
@@ -27,9 +27,14 @@ async def menu() -> InputModel:
                 default="",
             ).execute_async()
 
-        elif input_model.action == "download":
+        elif input_model.action == "download chat":
             input_model.origin_id = await inquirer.text(
                 message="Insira o ID do chat para download:",
+            ).execute_async()
+
+        elif input_model.action == "download media":
+            input_model.origin_id = await inquirer.text(
+                message="Insira o link da mídia para download:",
             ).execute_async()
 
         elif input_model.action == "upload":

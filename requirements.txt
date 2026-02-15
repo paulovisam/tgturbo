@@ -3,3 +3,4 @@ pyfiglet
 colorama
 https://github.com/paulovisam/pyrogram/archive/refs/heads/master.zip
 PyInquirer
+natsort

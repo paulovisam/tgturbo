@@ -45,6 +45,9 @@ async def menu() -> InputModel:
                 default=home_path,
                 only_directories=True,
             ).execute_async()
+            input_model.dest_id = await inquirer.text(
+                message="Insira o ID do chat de destino:",
+            ).execute_async()
         elif input_model.action == "down_up":
             input_model.origin_id = await inquirer.text(
                 message="Insira o ID do chat para baixar:",

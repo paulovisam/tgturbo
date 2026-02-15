@@ -8,6 +8,7 @@ from src.operations.media_clone import MediaClone
 from src.operations.media_downloader import MediaDownloader
 from src.operations.media_download_single import MediaDownloadSingle
 from src.operations.media_downup import MediaDownUp
+from src.operations.media_upload import MediaUpload
 from src.interface.menu import menu
 from src.schemas import InputModel
 import os
@@ -47,7 +48,12 @@ async def main():
                 progress_tracker=progress_tracker
             )
         elif args.action == "upload":
-            pass
+            action = MediaUpload(
+                client=client,
+                upload_path=args.upload_path,
+                destination_chat_id=args.dest_id,
+                progress_tracker=progress_tracker,
+            )
         elif args.action == "down_up":
             action = MediaDownUp(
                 client=client,

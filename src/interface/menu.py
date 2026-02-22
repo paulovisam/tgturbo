@@ -47,6 +47,8 @@ async def menu() -> InputModel:
             ).execute_async()
             input_model.dest_id = await inquirer.text(
                 message="Insira o ID do chat de destino:",
+                instruction="(Enter para criar canal com nome da pasta)",
+                default="",
             ).execute_async()
         elif input_model.action == "down_up":
             input_model.origin_id = await inquirer.text(

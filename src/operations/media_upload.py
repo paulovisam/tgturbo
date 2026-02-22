@@ -52,11 +52,35 @@ class MediaUpload(BaseOperation):
     def _is_processed(self, filename: str) -> bool:
         return filename in self.processed_files
 
+    def _is_destination_empty(self) -> bool:
+        """Verifica se destination_chat_id está vazio ou inválido."""
+        if self.destination_chat_id is None:
+            return True
+        if isinstance(self.destination_chat_id, str) and not self.destination_chat_id.strip():
+            return True
+        return False
+
+    async def _create_channel_from_folder_name(self):
+        """Cria um canal com o nome da pasta quando destination_chat_id está vazio."""
+        folder_name = os.path.basename(self.upload_path.rstrip(os.sep))
+        channel_title = folder_name.replace("-", " ").replace("_", " ")
+        self.spinner.text = f"Criando canal: {channel_title}..."
+        new_channel = await self.client.create_channel(title=channel_title)
+        self.spinner.succeed(f"Canal criado: {channel_title} (ID: {new_channel.id})")
+        logger.info(f"Canal criado: {channel_title} (ID: {new_channel.id})")
+        return new_channel
+
     async def run(self):
         self.spinner.start()
         try:
+            # Se destination_chat_id vazio, cria canal com nome da pasta
+            if self._is_destination_empty():
+                new_channel = await self._create_channel_from_folder_name()
+                self.destination_chat_id = new_channel.id
+                self.client.destination_chat_id = new_channel.id
+
             # Step 1: Zip non-video files
-            await self._step1_zip_non_videos()
+            await self._step2_zip_non_videos()
 
             # Step 3: Reencode videos (Step 2 seems skipped in user prompt numbering or it is Step 3)
             # User said "Etapa 3 (p3) — Reencode de vídeos"
@@ -78,7 +102,7 @@ class MediaUpload(BaseOperation):
             logger.error(f"Erro detalhado: {e}", exc_info=True)
             raise e
 
-    async def _step1_zip_non_videos(self):
+    async def _step2_zip_non_videos(self):
         self.spinner.text = "Etapa 1: Compactando arquivos não-vídeo..."
         # Collect non-video files
         files_to_zip = []
@@ -100,6 +124,7 @@ class MediaUpload(BaseOperation):
                 files_to_zip.append(file_path)
 
         if not files_to_zip:
+            self.spinner.succeed("2/6 - Nenhum arquivo não-vídeo para compactar.")
             return
 
         # Create zip volumes
@@ -159,6 +184,7 @@ class MediaUpload(BaseOperation):
             os.remove(current_zip_path)
             if current_zip_path in created_zips:
                 created_zips.remove(current_zip_path)
+        self.spinner.succeed(f"2/6 - Arquivos não-vídeo compactados em {len(created_zips)} partes.")
 
     async def _step3_reencode_videos(self):
         self.spinner.text = "Etapa 3: Verificando reencode de vídeos..."
@@ -168,6 +194,7 @@ class MediaUpload(BaseOperation):
         reencoder = MediaReencode(self.client, self.upload_path, self.progress_tracker)
         await reencoder.run() # This handles its own errors and spinner logic mostly
         self.spinner.start()
+        self.spinner.succeed("3/6 - Vídeos reencodados com sucesso.")
 
     async def _step4_split_large_videos(self):
         self.spinner.text = "Etapa 4: Dividindo vídeos grandes..."
@@ -195,6 +222,10 @@ class MediaUpload(BaseOperation):
                         logger.error(f"Erro ao remover arquivo original {video_path}: {e}")
                 else:
                     logger.error(f"Falha ao dividir vídeo: {video_path}")
+        self.spinner.succeed("4/6 - Vídeos grandes divididos com sucesso.")
+        if not videos:
+            self.spinner.succeed("4/6 - Nenhum vídeo grande para dividir.")
+            return
 
     async def _step5_generate_metadata(self):
         self.spinner.text = "Etapa 5: Gerando metadados e sumário..."
@@ -204,7 +235,7 @@ class MediaUpload(BaseOperation):
         project_name = os.path.basename(self.upload_path.rstrip(os.sep))
         invite_link = "https://t.me/placeholder" # Should be retrieved from chat if possible, or placeholder
         try:
-            chat = await self.client.get_chat(self.client.destination_chat_id or "me") # Assuming destination_chat_id is set in base or somewhere
+            chat = await self.client.get_chat(self.client.destination_chat_id) # Assuming destination_chat_id is set in base or somewhere
             invite_link = chat.invite_link or invite_link
         except:
             pass
@@ -286,6 +317,7 @@ Convite: {invite_link}"""
         # Generate Summary Tree
         summary_tree = self._generate_summary_tree(self.upload_path)
         
+        self.spinner.succeed("5/6 - Metadados e sumário gerados com sucesso.")
         return summary_tree, header_info, video_metadata
 
     def _generate_summary_tree(self, start_path: str) -> str:
@@ -388,7 +420,7 @@ Convite: {invite_link}"""
                      # Better to provide duration if we have it.
                      dur_sec = int(video_metadata.get(file_name, {}).get('duration', 0)) or 0
                      await self.client.send_video(
-                         chat_id=self.client.destination_chat_id or "me", # Fix this destination
+                         chat_id=self.client.destination_chat_id, # Fix this destination
                         video=file_path,
                         caption=caption,
                         duration=dur_sec,
@@ -396,7 +428,7 @@ Convite: {invite_link}"""
                      )
                 else:
                      await self.client.send_document(
-                         chat_id=self.client.destination_chat_id or "me",
+                         chat_id=self.client.destination_chat_id,
                          document=file_path,
                          caption=caption
                      )
@@ -434,7 +466,7 @@ Convite: {invite_link}"""
         first_msg_id = None
         for i, text in enumerate(msgs):
             sent = await self.client.send_message(
-                chat_id=self.client.destination_chat_id or "me",
+                chat_id=self.client.destination_chat_id,
                 text=text
             )
             if i == 0:
@@ -444,8 +476,9 @@ Convite: {invite_link}"""
         if first_msg_id:
             try:
                 await self.client.pin_chat_message(
-                    chat_id=self.client.destination_chat_id or "me",
+                    chat_id=self.client.destination_chat_id,
                     message_id=first_msg_id
                 )
             except Exception as e:
                 logger.warning(f"Não foi possível fixar a mensagem: {e}")
+        self.spinner.succeed("6/6 - Arquivos e sumário enviados com sucesso.")

@@ -6,3 +6,4 @@ PyInquirer
 natsort
 pydantic
 inquirerpy
+tqdm

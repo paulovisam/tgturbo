@@ -9,6 +9,7 @@ from halo import Halo
 from natsort import natsorted
 from pyrogram.client import Client
 from pyrogram.errors import FloodWait
+from tqdm import tqdm
 
 from .base import BaseOperation
 from .media_reencode import MediaReencode
@@ -34,15 +35,40 @@ class MediaUpload(BaseOperation):
         self.spinner = Halo(
             text="Preparando operação de envio de mídias...", spinner="dots"
         )
+        self.spinner.start()
         # Tracking file for resumability
         self.processed_files_log = os.path.join(self.upload_path, ".processed_files")
         self.processed_files = self._load_processed_files()
 
     def _load_processed_files(self) -> set:
+        processed = set()
         if os.path.exists(self.processed_files_log):
             with open(self.processed_files_log, "r", encoding="utf-8") as f:
-                return set(line.strip() for line in f if line.strip())
-        return set()
+                for line in f:
+                    line = line.strip()
+                    if not line: continue
+                    if line.startswith("CHAT_ID:"):
+                        saved_id = line.replace("CHAT_ID:", "").strip()
+                        if saved_id:
+                            # Try to convert to int if it's a numeric ID
+                            try:
+                                self.destination_chat_id = int(saved_id)
+                            except ValueError:
+                                self.destination_chat_id = saved_id
+                    else:
+                        processed.add(line)
+        return processed
+
+    def _save_chat_id(self, chat_id: str | int):
+        """Salva o ID do chat no log de progresso se ainda não estiver lá."""
+        content = ""
+        if os.path.exists(self.processed_files_log):
+            with open(self.processed_files_log, "r", encoding="utf-8") as f:
+                content = f.read()
+        
+        if f"CHAT_ID:{chat_id}" not in content:
+            with open(self.processed_files_log, "a", encoding="utf-8") as f:
+                f.write(f"CHAT_ID:{chat_id}\n")
 
     def _mark_as_processed(self, filename: str):
         with open(self.processed_files_log, "a", encoding="utf-8") as f:
@@ -71,13 +97,20 @@ class MediaUpload(BaseOperation):
         return new_channel
 
     async def run(self):
-        self.spinner.start()
         try:
-            # Se destination_chat_id vazio, cria canal com nome da pasta
+            # Se destino vazio, tenta carregar do log ou cria novo
             if self._is_destination_empty():
-                new_channel = await self._create_channel_from_folder_name()
-                self.destination_chat_id = new_channel.id
-                self.client.destination_chat_id = new_channel.id
+                if self.destination_chat_id:
+                    self.client.destination_chat_id = self.destination_chat_id
+                    self.spinner.info(f"Retomando no chat salvo: {self.destination_chat_id}")
+                else:
+                    new_channel = await self._create_channel_from_folder_name()
+                    self.destination_chat_id = new_channel.id
+                    self.client.destination_chat_id = new_channel.id
+            
+            # Salva o chat_id no log para garantir resumibilidade
+            if self.destination_chat_id:
+                self._save_chat_id(self.destination_chat_id)
 
             # Step 1: Zip non-video files
             await self._step2_zip_non_videos()
@@ -277,29 +310,33 @@ class MediaUpload(BaseOperation):
 
         # Scan for actual files to calculate totals
         files_to_process = []
+        all_found = []
         for root, dirs, files in os.walk(self.upload_path):
-            for file in natsorted(files):
-                file_path = os.path.join(root, file)
-                if file.startswith("."): continue
+            for file in files:
+                all_found.append(os.path.join(root, file))
+        
+        for file_path in natsorted(all_found):
+            file = os.path.basename(file_path)
+            if file.startswith("."): continue
+            
+            size = os.path.getsize(file_path)
+            total_size += size
+            
+            files_to_process.append(file_path)
                 
-                size = os.path.getsize(file_path)
-                total_size += size
+            if is_video_file(file_path):
+                # Calculate duration if not in metadata or confirm
+                dur = await get_video_duration(file_path)
+                total_duration += dur
                 
-                files_to_process.append(file_path)
-                
-                if is_video_file(file_path):
-                    # Calculate duration if not in metadata or confirm
-                    dur = await get_video_duration(file_path)
-                    total_duration += dur
-                    
-                    # Update metadata if missing
-                    if file not in video_metadata:
-                         video_metadata[file] = {
-                             'duration': dur,
-                             'description': file, # Descricao igual titulo do video (nome do arquivo)
-                             'title': file,
-                             'path': file_path
-                         }
+                # Update metadata if missing
+                if file not in video_metadata:
+                    video_metadata[file] = {
+                        'duration': dur,
+                        'description': file, # Descricao igual titulo do video (nome do arquivo)
+                        'title': file,
+                        'path': file_path
+                    }
 
         # Format totals
         size_gb = total_size / (1024 ** 3)
@@ -359,97 +396,98 @@ Convite: {invite_link}"""
         return "\n".join(tree_lines)
 
     async def _step6_upload_content(self, header_info: str, video_metadata: dict, summary_tree: str):
-        self.spinner.text = "Etapa 6: Enviando arquivos e sumário..."
-        
-        # 1. Send Header + Summary (First part)
-        # Check if we already sent summary? 
-        # If resuming, maybe we skip or resend. 
-        # For simplicity, we send files first then summary? 
-        # User request: "Envia cada arquivo (...) com sua respectiva descrição"
-        # "Envia o sumário (...) Fixa a primeira mensagem"
-        # Usually summary is sent AFTER or BEFORE? 
-        # User prompt list order: "Envia cada arquivo..." THEN "Envia o sumário...".
-        # So files first.
+        self.spinner.text = "Etapa 6: Iniciando envio de arquivos..."
+        self.spinner.info("Preparando lotes de envio...")
         
         # Files upload
-        all_files = []
+        all_paths_found = []
         for root, dirs, files in os.walk(self.upload_path):
-            for file in natsorted(files):
-                if file.startswith(".") or file == ".processed_files": continue
-                all_files.append(os.path.join(root, file))
+            for file in files:
+                if file.startswith(".") or file == ".processed_files" or file == "video_details.csv": continue
+                all_paths_found.append(os.path.join(root, file))
 
-        for file_path in all_files:
-            file_name = os.path.basename(file_path)
-            if self._is_processed(file_name):
-                continue
-            
-            self.spinner.text = f"Enviando: {file_name}"
-            
-            # Helper to get description
-            caption = ""
-            if is_video_file(file_path) and file_name in video_metadata:
-                 meta = video_metadata[file_name]
-                 # "Adapta descrições que excedem 999 caracteres"
-                 # "Cria descrições individuais para cada vídeo (descrição é igual o titulo do video)"
-                 # Template: #F002 02 - INSTALANDO O VSCODE - HTML e CSS_2
-                 # We simply use the file name as description if no specific template provided other than example.
-                 desc = meta.get('description', file_name)
-                 if len(desc) > 999:
-                     desc = desc[:996] + "..."
-                 caption = desc
-            elif file_name.endswith(".zip"):
-                 caption = f"📦 Arquivos Extras: {file_name}"
-            else:
-                 caption = file_name
+        all_files = natsorted(all_paths_found)
 
-            # Send
-            try:
-                # Use base class send (wraps client.send_document etc)
-                # But BaseOperation.send takes 'message' object usually?
-                # Let's see BaseOperation.send signature: `async def send(self, message, *args, **kwargs)`
-                # It expects a 'message' object (Pyrogram Message) to detect type.
-                # Here we are initiating upload, not modifying.
-                # So we should call client directly or use a better helper.
-                # BaseOperation.send seems designed for copy/forward logic, not fresh upload.
-                # I will use self.client directly.
+        # Filter already processed files
+        files_to_upload = [f for f in all_files if not self._is_processed(os.path.basename(f))]
+        
+        if not files_to_upload:
+            self.spinner.succeed("Todos os arquivos já foram enviados anteriormente.")
+        else:
+            self.spinner.stop() # Stop spinner to not flicker with tqdm
+            print(f"\n🚀 Enviando {len(files_to_upload)} arquivos...")
+            
+            pbar = tqdm(total=len(files_to_upload), unit="arq", desc="Upload", dynamic_ncols=True)
+            
+            for file_path in files_to_upload:
+                file_name = os.path.basename(file_path)
                 
-                # Check file type
-                if is_video_file(file_path):
-                     # Extract duration/thumb if needed
-                     # We rely on ffmpeg_utils or let TG handle it. 
-                     # Better to provide duration if we have it.
-                     dur_sec = int(video_metadata.get(file_name, {}).get('duration', 0)) or 0
-                     await self.client.send_video(
-                         chat_id=self.client.destination_chat_id, # Fix this destination
-                        video=file_path,
-                        caption=caption,
-                        duration=dur_sec,
-                        supports_streaming=True
-                     )
+                # Helper to get description
+                caption = ""
+                if is_video_file(file_path) and file_name in video_metadata:
+                     meta = video_metadata[file_name]
+                     # "Adapta descrições que excedem 999 caracteres"
+                     # "Cria descrições individuais para cada vídeo (descrição é igual o titulo do video)"
+                     # Template: #F002 02 - INSTALANDO O VSCODE - HTML e CSS_2
+                     # We simply use the file name as description if no specific template provided other than example.
+                     desc = meta.get('description', file_name)
+                     if len(desc) > 999:
+                         desc = desc[:996] + "..."
+                     caption = desc
+                elif file_name.endswith(".zip"):
+                     caption = f"📦 Arquivos Extras: {file_name}"
                 else:
-                     await self.client.send_document(
-                         chat_id=self.client.destination_chat_id,
-                         document=file_path,
-                         caption=caption
-                     )
-                
-                # Rate limit / FloodWait handling is done by Pyrogram usually but good to be safe
-                # We should catch exceptions.
-                
-                self._mark_as_processed(file_name)
-                
-            except FloodWait as e:
-                logger.warning(f"FloodWait de {e.value} segundos.")
-                await asyncio.sleep(e.value)
-                # Retry once?
-                # Just loop continue will fail item but proceed? No, better retry logic needed.
-                # For now simple error logging.
-            except Exception as e:
-                logger.error(f"Erro ao enviar {file_name}: {e}")
-                # Don't crash, try next?
+                     caption = file_name
+
+                # Send
+                try:
+                    # Use base class send (wraps client.send_document etc)
+                    # But BaseOperation.send takes 'message' object usually?
+                    # Let's see BaseOperation.send signature: `async def send(self, message, *args, **kwargs)`
+                    # It expects a 'message' object (Pyrogram Message) to detect type.
+                    # Here we are initiating upload, not modifying.
+                    # So we should call client directly or use a better helper.
+                    # BaseOperation.send seems designed for copy/forward logic, not fresh upload.
+                    # I will use self.client directly.
+                    
+                    # Check file type
+                    if is_video_file(file_path):
+                         # Extract duration/thumb if needed
+                         # We rely on ffmpeg_utils or let TG handle it. 
+                         # Better to provide duration if we have it.
+                         dur_sec = int(video_metadata.get(file_name, {}).get('duration', 0)) or 0
+                         await self.client.send_video(
+                             chat_id=self.client.destination_chat_id, # Fix this destination
+                            video=file_path,
+                            caption=caption,
+                            duration=dur_sec,
+                            supports_streaming=True
+                         )
+                    else:
+                         await self.client.send_document(
+                             chat_id=self.client.destination_chat_id,
+                             document=file_path,
+                             caption=caption
+                         )
+                    
+                    # Rate limit / FloodWait handling is done by Pyrogram usually but good to be safe
+                    # We should catch exceptions.
+                    
+                    self._mark_as_processed(file_name)
+                    pbar.update(1)
+                                    
+                except FloodWait as e:
+                    logger.warning(f"FloodWait de {e.value} segundos.")
+                    await asyncio.sleep(e.value)
+                    # Retry once?
+                except Exception as e:
+                    logger.error(f"Erro ao enviar {file_name}: {e}")
+            
+            pbar.close()
+            print() # New line after progress bar
         
         # 2. Send Summary
-        self.spinner.text = "Enviando sumário..."
+        self.spinner.info("Enviando sumário...")
         
         # Combine Header + Tree
         full_text = f"{header_info}\n\n{summary_tree}"

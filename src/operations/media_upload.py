@@ -415,12 +415,12 @@ Convite: {invite_link}"""
             self.spinner.succeed("Todos os arquivos já foram enviados anteriormente.")
         else:
             self.spinner.stop() # Stop spinner to not flicker with tqdm
-            print(f"\n🚀 Enviando {len(files_to_upload)} arquivos...")
-            
-            pbar = tqdm(total=len(files_to_upload), unit="arq", desc="Upload", dynamic_ncols=True)
+            print("\n")
+            pbar_total = tqdm(total=len(files_to_upload), unit="arq", desc=f"🚀 Enviando {len(files_to_upload)} arquivos...", position=0, dynamic_ncols=True)
             
             for file_path in files_to_upload:
                 file_name = os.path.basename(file_path)
+                file_size = os.path.getsize(file_path)
                 
                 # Helper to get description
                 caption = ""
@@ -439,52 +439,46 @@ Convite: {invite_link}"""
                 else:
                      caption = file_name
 
+                # Progress bar for the current file
+                pbar_file = tqdm(total=file_size, unit="B", unit_scale=True, desc=f"Enviando {file_name[:20]}...", position=1, leave=False, dynamic_ncols=True)
+
+                def progress(current, total):
+                    pbar_file.n = current
+                    pbar_file.refresh()
+
                 # Send
                 try:
-                    # Use base class send (wraps client.send_document etc)
-                    # But BaseOperation.send takes 'message' object usually?
-                    # Let's see BaseOperation.send signature: `async def send(self, message, *args, **kwargs)`
-                    # It expects a 'message' object (Pyrogram Message) to detect type.
-                    # Here we are initiating upload, not modifying.
-                    # So we should call client directly or use a better helper.
-                    # BaseOperation.send seems designed for copy/forward logic, not fresh upload.
-                    # I will use self.client directly.
-                    
-                    # Check file type
                     if is_video_file(file_path):
-                         # Extract duration/thumb if needed
-                         # We rely on ffmpeg_utils or let TG handle it. 
-                         # Better to provide duration if we have it.
                          dur_sec = int(video_metadata.get(file_name, {}).get('duration', 0)) or 0
                          await self.client.send_video(
-                             chat_id=self.client.destination_chat_id, # Fix this destination
-                            video=file_path,
-                            caption=caption,
-                            duration=dur_sec,
-                            supports_streaming=True
+                             chat_id=self.client.destination_chat_id,
+                             video=file_path,
+                             caption=caption,
+                             duration=dur_sec,
+                             supports_streaming=True,
+                             progress=progress
                          )
                     else:
                          await self.client.send_document(
                              chat_id=self.client.destination_chat_id,
                              document=file_path,
-                             caption=caption
+                             caption=caption,
+                             progress=progress
                          )
                     
-                    # Rate limit / FloodWait handling is done by Pyrogram usually but good to be safe
-                    # We should catch exceptions.
-                    
                     self._mark_as_processed(file_name)
-                    pbar.update(1)
+                    pbar_total.update(1)
                                     
                 except FloodWait as e:
                     logger.warning(f"FloodWait de {e.value} segundos.")
                     await asyncio.sleep(e.value)
-                    # Retry once?
                 except Exception as e:
                     logger.error(f"Erro ao enviar {file_name}: {e}")
+                finally:
+                    pbar_file.close()
             
-            pbar.close()
-            print() # New line after progress bar
+            pbar_total.close()
+            print() # New line after progress bars
         
         # 2. Send Summary
         self.spinner.info("Enviando sumário...")

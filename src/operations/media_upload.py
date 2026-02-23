@@ -39,6 +39,7 @@ class MediaUpload(BaseOperation):
         # Tracking file for resumability
         self.processed_files_log = os.path.join(self.upload_path, ".processed_files")
         self.processed_files = self._load_processed_files()
+        self.file_tags = {} # Map file path -> hashtag (e.g. #F001)
 
     def _load_processed_files(self) -> set:
         processed = set()
@@ -102,7 +103,8 @@ class MediaUpload(BaseOperation):
             if self._is_destination_empty():
                 if self.destination_chat_id:
                     self.client.destination_chat_id = self.destination_chat_id
-                    self.spinner.info(f"Retomando no chat salvo: {self.destination_chat_id}")
+                    print(self.destination_chat_id)
+                    self.spinner.info(f"Retomando no chat salvo: {self.destination_chat_id}").start()
                 else:
                     new_channel = await self._create_channel_from_folder_name()
                     self.destination_chat_id = new_channel.id
@@ -308,16 +310,20 @@ class MediaUpload(BaseOperation):
             except Exception as e:
                 logger.error(f"Erro ao ler CSV {csv_file}: {e}")
 
-        # Scan for actual files to calculate totals
         files_to_process = []
         all_found = []
         for root, dirs, files in os.walk(self.upload_path):
             for file in files:
+                if file.startswith(".") or file == ".processed_files" or file == "video_details.csv": continue
                 all_found.append(os.path.join(root, file))
         
-        for file_path in natsorted(all_found):
+        # Generate sequential hashtags with natsort
+        all_sorted = natsorted(all_found)
+        for i, file_path in enumerate(all_sorted, 1):
+            self.file_tags[file_path] = f"#F{i:03d}"
+        
+        for file_path in all_sorted:
             file = os.path.basename(file_path)
-            if file.startswith("."): continue
             
             size = os.path.getsize(file_path)
             total_size += size
@@ -381,7 +387,8 @@ Convite: {invite_link}"""
                 connector, next_prefix = pointer
                 
                 icon = "📁" if is_dir else "📄"
-                line = f"{prefix}{connector}{icon} {content}"
+                tag = f" `{self.file_tags.get(full_path, '')}`" if not is_dir and full_path in self.file_tags else ""
+                line = f"{prefix}{connector}{icon}{tag} {content}"
                 if is_dir:
                     line += "/"
                 
@@ -424,20 +431,19 @@ Convite: {invite_link}"""
                 
                 # Helper to get description
                 caption = ""
+                tag = self.file_tags.get(file_path, "")
+                prefix_tag = f"{tag} - " if tag else ""
+                
                 if is_video_file(file_path) and file_name in video_metadata:
                      meta = video_metadata[file_name]
-                     # "Adapta descrições que excedem 999 caracteres"
-                     # "Cria descrições individuais para cada vídeo (descrição é igual o titulo do video)"
-                     # Template: #F002 02 - INSTALANDO O VSCODE - HTML e CSS_2
-                     # We simply use the file name as description if no specific template provided other than example.
                      desc = meta.get('description', file_name)
                      if len(desc) > 999:
                          desc = desc[:996] + "..."
-                     caption = desc
+                     caption = f"{prefix_tag}{desc}"
                 elif file_name.endswith(".zip"):
-                     caption = f"📦 Arquivos Extras: {file_name}"
+                     caption = f"📦 {prefix_tag}Arquivos Extras: {file_name}"
                 else:
-                     caption = file_name
+                     caption = f"{prefix_tag}{file_name}"
 
                 # Progress bar for the current file
                 pbar_file = tqdm(total=file_size, unit="B", unit_scale=True, desc=f"Enviando {file_name[:20]}...", position=1, leave=False, dynamic_ncols=True)

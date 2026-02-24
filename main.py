@@ -26,7 +26,7 @@ async def main():
         return await main()
     
     # Crie e inicie o cliente Pyrogram. Altere "my_account" conforme sua sessão/configuração.
-    async with Client("user") as client:
+    async with Client("user", workers=100, max_concurrent_transmissions=10) as client:
         if args.action == "clone":
             action = MediaClone(
                 client=client,

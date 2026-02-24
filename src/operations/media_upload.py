@@ -125,10 +125,10 @@ class MediaUpload(BaseOperation):
             await self._step4_split_large_videos()
 
             # Step 5: Metadata generation e Header
-            summary_tree, header_info, video_metadata = await self._step5_generate_metadata()
+            summary_tree, header_info, footer_info, video_metadata = await self._step5_generate_metadata()
 
             # Step 6: Upload content
-            await self._step6_upload_content(header_info, video_metadata, summary_tree)
+            await self._step6_upload_content(header_info, footer_info, video_metadata, summary_tree)
 
             self.spinner.succeed("Operação de envio concluída com sucesso!")
 
@@ -163,7 +163,7 @@ class MediaUpload(BaseOperation):
             return
 
         # Create zip volumes
-        zip_base_name = os.path.join(self.upload_path, "Extras.zip")
+        zip_base_name = os.path.join(self.upload_path, "Documentos.zip")
         # We need to handle splitting if total size > safe limit, OR just standard zip split.
         # Python zipfile doesn't support creating multi-volume zips easily natively.
         # Alternativa: criar zip unificado e se ficar grande, dividir? 
@@ -176,7 +176,7 @@ class MediaUpload(BaseOperation):
         current_zip_path = f"{zip_base_name}.{current_part:03d}" if current_part > 1 else zip_base_name # Actually user probably wants .zip, .z01 etc or Part1.zip
         # Let's use simple naming: Extras_Part001.zip
         
-        current_zip_path = os.path.join(self.upload_path, f"Extras_Part{current_part:03d}.zip")
+        current_zip_path = os.path.join(self.upload_path, f"Documentos_Part{current_part:03d}.zip")
         
         # Check if zips already exist (resumability) - simply skip zipping if "Extras_Part*.zip" exists?
         # Better: assume if we find zips, step 1 is done? 
@@ -197,7 +197,7 @@ class MediaUpload(BaseOperation):
             if current_zip_size + fsize > SAFE_SIZE_LIMIT:
                 current_zip.close()
                 current_part += 1
-                current_zip_path = os.path.join(self.upload_path, f"Extras_Part{current_part:03d}.zip")
+                current_zip_path = os.path.join(self.upload_path, f"Documentos_Part{current_part:03d}.zip")
                 current_zip = zipfile.ZipFile(current_zip_path, 'w', zipfile.ZIP_DEFLATED)
                 created_zips.append(current_zip_path)
                 current_zip_size = 0
@@ -357,11 +357,13 @@ Tamanho: {size_gb:.2f} GB
 Duração: {duration_str}
 Convite: {invite_link}"""
 
+        footer_info = f"""Enviado usando [TgTurbo](https://github.com/paulovisam/tgturbo)"""
+
         # Generate Summary Tree
         summary_tree = self._generate_summary_tree(self.upload_path)
         
         self.spinner.succeed("5/6 - Metadados e sumário gerados com sucesso.")
-        return summary_tree, header_info, video_metadata
+        return summary_tree, header_info, footer_info, video_metadata
 
     def _generate_summary_tree(self, start_path: str) -> str:
         tree_lines = []
@@ -402,7 +404,7 @@ Convite: {invite_link}"""
         add_to_tree(start_path)
         return "\n".join(tree_lines)
 
-    async def _step6_upload_content(self, header_info: str, video_metadata: dict, summary_tree: str):
+    async def _step6_upload_content(self, header_info: str, footer_info: str, video_metadata: dict, summary_tree: str):
         self.spinner.text = "Etapa 6: Iniciando envio de arquivos..."
         self.spinner.info("Preparando lotes de envio...")
         
@@ -490,7 +492,7 @@ Convite: {invite_link}"""
         self.spinner.info("Enviando sumário...")
         
         # Combine Header + Tree
-        full_text = f"{header_info}\n\n{summary_tree}"
+        full_text = f"{header_info}\n\n{summary_tree}\n\n{footer_info}"
         
         # Split if too long (4096 chars limit for text)
         msgs = []

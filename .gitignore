@@ -2,6 +2,8 @@ labs*
 downloads
 log
 *.session
+*.session*
+.agent/
 progress.json                  
 
 # Byte-compiled / optimized / DLL files

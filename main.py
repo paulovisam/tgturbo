@@ -1,6 +1,7 @@
 import asyncio
 
 from pyrogram import Client
+from pyrogram.types import User
 from src.log import logger
 from src.progress_tracker import ProgressTracker
 

@@ -6,10 +6,10 @@ from src.schemas import InputModel
 from .banner import Banner
 
 
-async def menu() -> InputModel:
+async def menu(session_details: list[str] | None = None) -> InputModel:
     try:
         os.system("clear")
-        Banner("TgTurbo").print_banner()
+        Banner("TgTurbo").print_banner(session_details=session_details)
         input_model = InputModel()
         input_model.action = await inquirer.rawlist(
             message="O que deseja fazer hoje:",

@@ -11,11 +11,16 @@ class Banner:
         self.r = Fore.RED
         self.n = Fore.RESET
 
-    def print_banner(self):
+    def print_banner(self, session_details: list[str] | None = None):
         colors = [self.lg, self.r, self.w, self.cy, self.ye]
         f = pyfiglet.Figlet(font='slant')
         display_text = f.renderText(self.display_text)
         color = random.choice(colors)
         print(f'{color}{display_text}{self.n}')
         print(f'{color}  Version: v0.0.1 \n{self.n}')
+        if session_details:
+            print(f'{color}  Conectado como:{self.n}')
+            for detail in session_details:
+                print(f'{color}    - {detail}{self.n}')
+            print()
         # print(f'{color}  Version: v0.0.1 \nby: paulovisam\n{self.n}')

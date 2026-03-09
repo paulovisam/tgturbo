@@ -15,18 +15,36 @@ import os
 
 #TODO - Verificar se já existe arquivo antes de baixar
 
+def format_session_details(me: User) -> list[str]:
+    username = f"@{me.username}" if me.username else "nao definido"
+    full_name = " ".join(filter(None, [me.first_name, me.last_name])) or "nao definido"
+    is_premium = "✅" if getattr(me, "is_premium", False) else "❌"
+    # phone_number = me.phone_number if me.phone_number else "nao definido"
+    return [
+        f"Nome: {full_name}",
+        f"Usuario: {username}",
+        f"ID: {me.id}",
+        # f"Telefone: {phone_number}",
+        f"Premium: {is_premium}",
+    ]
+
+
 async def main():
-    # Função principal e configuração da linha de comando
-    args = await menu()
-
-    # Cria o rastreador de progresso
-    progress_tracker = ProgressTracker()
-
-    if not args.confirm:
-        return await main()
-    
-    # Crie e inicie o cliente Pyrogram. Altere "my_account" conforme sua sessão/configuração.
+    # Crie e inicie o cliente Pyrogram. Altere "user" conforme sua sessão/configuração.
     async with Client("user", workers=100, max_concurrent_transmissions=10) as client:
+        me = await client.get_me()
+        session_details = format_session_details(me)
+
+        # Função principal e configuração da linha de comando
+        args = await menu(session_details=session_details)
+
+        # Cria o rastreador de progresso
+        progress_tracker = ProgressTracker()
+
+        if not args.confirm:
+            return await main()
+
+        action = None
         if args.action == "clone":
             action = MediaClone(
                 client=client,

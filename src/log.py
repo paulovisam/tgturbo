@@ -13,7 +13,7 @@ error_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(me
 logger.addHandler(error_handler)
 
 # Criando um handler para gravar em um arquivo de informações gerais
-info_handler = logging.FileHandler('./log/info.txt')
-info_handler.setLevel(logging.INFO)
+info_handler = logging.FileHandler('./log/debug.txt')
+info_handler.setLevel(logging.DEBUG)
 info_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 logger.addHandler(info_handler)

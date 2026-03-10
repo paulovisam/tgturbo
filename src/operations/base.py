@@ -61,3 +61,14 @@ class BaseOperation:
             mime_type = message.sticker.mime_type.split("/")[-1]
             name = message.sticker.file_name or message.sticker.file_unique_id
             return f"{name}.{mime_type}"
+
+    async def get_current_chats(self) -> list[int]:
+        """
+        Obtém os chats atuais do cliente e evita o erro
+        400 PEER_ID_INVALID - chat não encontrado 
+        ao obter o chat de destino.
+        """
+        chat_ids: list[int] = []
+        async for dialog in self.client.get_dialogs():
+            chat_ids.append(dialog.chat.id)
+        return chat_ids

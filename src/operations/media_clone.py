@@ -88,6 +88,13 @@ class MediaClone(BaseOperation):
             self.spinner.succeed(
                 f"Clonando => Chat de origem ({origin_chat.id}) | Chat de destino ({self.destination_chat_id}) Protected: {protected}"
             ).start()
+        except PeerIdInvalid as e:
+            # Recupera os chats atuais do cliente e tenta novamente
+            current_chats = await self.get_current_chats()
+            if self.destination_chat_id not in current_chats:
+                self.spinner.fail(f"Chat de destino não encontrado").start()
+                return
+            return await self.run()
         except Exception as e:
             self.spinner.fail(f"Erro ao obter chat de destino: {e}").start()
             return

@@ -52,6 +52,8 @@ async def main():
                 origin_chat_id=args.origin_id,
                 destination_chat_id=args.dest_id,
                 progress_tracker=progress_tracker,
+                add_suffix=args.add_suffix,
+                remove_suffix=args.remove_suffix,
             )
 
         elif args.action == "download chat":

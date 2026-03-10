@@ -18,11 +18,15 @@ class MediaClone(BaseOperation):
         origin_chat_id: int,
         destination_chat_id: int,
         progress_tracker: ProgressTracker,
+        add_suffix: str,
+        remove_suffix: str,
     ):
         super().__init__(client, progress_tracker)
         self.client = client
         self.origin_chat_id = origin_chat_id
         self.destination_chat_id = destination_chat_id
+        self.add_suffix = add_suffix
+        self.remove_suffix = remove_suffix
         self.spinner = Halo(
             text="Preparando operação de mover mensagens...", spinner="dots"
         )
@@ -127,7 +131,20 @@ class MediaClone(BaseOperation):
                     # Ignora mensagens de serviço
                     # if isinstance(message, MessageService):
                     #     continue
-                    
+
+                    ## Adicionar ou remover sufixo
+                    if self.add_suffix:
+                        logger.debug(f"Adicionando sufixo: {self.add_suffix}")
+                        message.text = f"{message.text} {self.add_suffix}"
+                        message.caption = f"{message.caption} {self.add_suffix}"
+                        logger.debug(f"Texto final: {message.text}")
+                        logger.debug(f"Caption final: {message.caption}")
+                    if self.remove_suffix:
+                        logger.debug(f"Removendo sufixo: {self.remove_suffix}")
+                        message.text = message.text.replace(self.remove_suffix, "") if message.text else None
+                        message.caption = message.caption.replace(self.remove_suffix, "") if message.caption else None
+                        logger.debug(f"Texto final: {message.text}")
+                        logger.debug(f"Caption final: {message.caption}")
                     # Se o chat de destino tiver conteúdo protegido, não é possível encaminhar;
                     # portanto, copiamos o conteúdo manualmente.
                     if protected:

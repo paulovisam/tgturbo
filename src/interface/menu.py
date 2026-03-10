@@ -26,6 +26,16 @@ async def menu(session_details: list[str] | None = None) -> InputModel:
                 instruction="(Enter para criar)",
                 default="",
             ).execute_async()
+            input_model.add_suffix = await inquirer.text(
+                message="Adicionar sufixo:",
+                instruction="(Enter para NÂO)",
+                default="",
+            ).execute_async()
+            input_model.remove_suffix = await inquirer.text(
+                message="Remover sufixo:",
+                instruction="(Enter para NÂO)",
+                default="",
+            ).execute_async()
 
         elif input_model.action == "download chat":
             input_model.origin_id = await inquirer.text(

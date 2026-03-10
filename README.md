@@ -12,6 +12,7 @@ TgTurbo é um projeto desenvolvido para facilitar a manipulação de mídias em 
 - [Uso](#uso)
 - [Funcionalidades](#funcionalidades)
 - [Opções do Usuário](#opções-do-usuário)
+- [TODO](#todo)
 - [Contribuição](#contribuição)
 - [Licença](#licença)
 
@@ -60,6 +61,14 @@ Ao iniciar o TgTurbo, você verá um menu com as seguintes opções:
 4. **Down_Up**: Realiza tanto o download quanto o upload de mídias. Você precisará inserir o ID do chat para baixar e o ID do chat para enviar.
 
 Após selecionar uma opção, você será solicitado a confirmar sua escolha antes de prosseguir.
+
+## TODO
+
+- [ ] Adicionar funcionalidade de vitrine, enviar resumo da coleção para um chat definido
+- [ ] Adicionar ou remover prefixos e sufixos via config.ini
+- [ ] Adicionar administradores padrão ao criar um novo chat voa config.ini
+- [ ] Adicionar testes automatizados para validação de `InputModel` e fluxos principais.
+- [ ] Refatorar módulos muito longos em componentes menores e mais fáceis de manter.
 
 ## Contribuição
 

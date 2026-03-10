@@ -37,7 +37,7 @@ async def main():
         session_details = format_session_details(me)
 
         # Função principal e configuração da linha de comando
-        args = await menu(session_details=session_details)
+        args: InputModel = await menu(session_details=session_details)
 
         # Cria o rastreador de progresso
         progress_tracker = ProgressTracker()

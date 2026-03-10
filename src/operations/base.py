@@ -14,11 +14,12 @@ class BaseOperation:
         if message.document or message.voice:
             return await self.client.send_document(*args, **kwargs)
         if message.audio:
-            return await self.client.send_audio(*args, **kwargs)
+            audio = kwargs.pop('document')
+            return await self.client.send_audio(audio=audio, *args, **kwargs)
         if message.video:
-            return await self.client.send_video(*args, **kwargs)
+            video = kwargs.pop('document')
+            return await self.client.send_video(video=video, *args, **kwargs)
         if message.photo:
-            # photo = kwargs.get('document')
             photo = kwargs.pop('document')
             return await self.client.send_photo(photo=photo, *args, **kwargs)
         if message.video_note:

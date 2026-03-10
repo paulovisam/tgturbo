@@ -12,7 +12,10 @@ from src.operations.media_downup import MediaDownUp
 from src.operations.media_upload import MediaUpload
 from src.interface.menu import menu
 from src.schemas import InputModel
-import os
+from configparser import ConfigParser
+
+config = ConfigParser()
+config.read('config.ini')
 
 #TODO - Verificar se já existe arquivo antes de baixar
 
@@ -49,6 +52,7 @@ async def main():
         if args.action == "clone":
             action = MediaClone(
                 client=client,
+                config=config,
                 origin_chat_id=args.origin_id,
                 destination_chat_id=args.dest_id,
                 progress_tracker=progress_tracker,

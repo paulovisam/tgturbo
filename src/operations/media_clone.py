@@ -2,7 +2,7 @@ import os, time
 from .base import BaseOperation
 from pyrogram.client import Client
 from pyrogram.types import ChatPrivileges
-from pyrogram.errors import MessageIdInvalid, MessageEmpty
+from pyrogram.errors import MessageIdInvalid, MessageEmpty, PeerIdInvalid
 from halo import Halo
 from src.progress_tracker import ProgressTracker
 from src.log import logger
@@ -15,6 +15,7 @@ class MediaClone(BaseOperation):
     def __init__(
         self,
         client: Client,
+        config,
         origin_chat_id: int,
         destination_chat_id: int,
         progress_tracker: ProgressTracker,
@@ -23,6 +24,7 @@ class MediaClone(BaseOperation):
     ):
         super().__init__(client, progress_tracker)
         self.client = client
+        self.config = config['clone']
         self.origin_chat_id = origin_chat_id
         self.destination_chat_id = destination_chat_id
         self.add_suffix = add_suffix
@@ -48,7 +50,7 @@ class MediaClone(BaseOperation):
 
     async def _create_group(self, client: Client, name: str, users_admin: list = None):
         chat_title = name.replace("-", " ").replace("_", " ")
-        # TODO -  prefix in config
+        # TODO - prefix in config
         # TODO - vitrine
         new_channel = await client.create_channel(title=f"#DRIVE - {chat_title}")
         invite_link = await client.export_chat_invite_link(new_channel.id)
@@ -79,14 +81,14 @@ class MediaClone(BaseOperation):
 
     async def run(self):
         self.spinner.start()
-
         try:
             # Obtém informações do chat de destino para verificar se o conteúdo é protegido.
             origin_chat = await self.client.get_chat(self.origin_chat_id)
             path_download = create_path(f"./downloads/{origin_chat.title}")
             protected = origin_chat.has_protected_content
+            description_destination = f"| Destino: {self.destination_chat_id}" if self.destination_chat_id else ''
             self.spinner.succeed(
-                f"Clonando => Chat de origem ({origin_chat.id}) | Chat de destino ({self.destination_chat_id}) Protected: {protected}"
+                f"Clonando => {origin_chat.title} ({origin_chat.id}) {description_destination} | Protected: {protected}"
             ).start()
         except PeerIdInvalid as e:
             # Recupera os chats atuais do cliente e tenta novamente
@@ -102,18 +104,25 @@ class MediaClone(BaseOperation):
         # TODO - users admin in config
         # Caso não tenha destino cria grupo
         if not self.destination_chat_id:
+            self.spinner.text = f"Criando grupo de destino..."
             destination_chat = await self._create_group(
-                client=self.client, name=origin_chat.title, users_admin=None
+                client=self.client,
+                name=origin_chat.title,
+                users_admin=self.config['admins'].split(','),
             )
             self.destination_chat_id = destination_chat.id
+            self.spinner.succeed(f"Grupo de destino criado: {destination_chat.title} ({destination_chat.id})").start()
         # Caso tenha destino, obter grupo
         else:
-            destination_chat = self.client.get_chat(self.destination_chat_id)
+            self.spinner.text = f"Obtendo grupo de destino..."
+            destination_chat = await self.client.get_chat(self.destination_chat_id)
+            self.spinner.succeed(f"Grupo de destino encontrado: {destination_chat.title} ({destination_chat.id})").start()
 
         # Recupera o último message_id processado (caso haja retomada)
         last_msg_id = self.progress_tracker.get_last_message_id(
             op="clone", chat_id=origin_chat.id, dest_chat_id=destination_chat.id
         )
+        self.spinner.succeed(f"Retomando a partir do message_id: {last_msg_id}").start()
         logger.info(f"Retomando a partir do message_id: {last_msg_id}")
 
         # Configure a barra de progresso
@@ -182,6 +191,7 @@ class MediaClone(BaseOperation):
                             # Você pode personalizar: se a mídia for foto, use send_photo, etc.
                             # if message.media.DOCUMENT:
                             await super().send(
+                                chat_id=self.destination_chat_id,
                                 message=message,
                                 document=file_path,
                                 caption=message.caption or "",
@@ -203,7 +213,7 @@ class MediaClone(BaseOperation):
                             chat_id=self.destination_chat_id,
                             from_chat_id=origin_chat.id,
                             message_ids=message.id,
-                            drop_author=True
+                            drop_author=True,
                         )
                     logger.info(f"Mensagem {message.id} processada com sucesso.")
                     time.sleep(2)

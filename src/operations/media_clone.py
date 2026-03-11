@@ -2,7 +2,7 @@ import os, time
 from .base import BaseOperation
 from pyrogram.client import Client
 from pyrogram.types import ChatPrivileges
-from pyrogram.errors import MessageIdInvalid, MessageEmpty, PeerIdInvalid
+from pyrogram.errors import MessageIdInvalid, MessageEmpty, PeerIdInvalid, MessageNotModified
 from halo import Halo
 from src.progress_tracker import ProgressTracker
 from src.log import logger
@@ -78,6 +78,19 @@ class MediaClone(BaseOperation):
                     ),
                 )
         return new_channel
+
+    async def _edit_forwarded_caption(self, forwarded_message, new_caption: str | None = None):
+        if not forwarded_message:
+            return
+
+        try:
+            await self.client.edit_message_caption(
+                chat_id=self.destination_chat_id,
+                message_id=forwarded_message.id,
+                caption=new_caption,
+            )
+        except MessageNotModified:
+            pass
 
     async def run(self):
         self.spinner.start()
@@ -209,12 +222,15 @@ class MediaClone(BaseOperation):
                             )
                     else:
                         # Se o chat não tiver conteúdo protegido, encaminha a mensagem
-                        await self.client.forward_messages(
+                        forwarded_message = await self.client.forward_messages(
                             chat_id=self.destination_chat_id,
                             from_chat_id=origin_chat.id,
                             message_ids=message.id,
                             drop_author=True,
                         )
+                        if self.add_suffix or self.remove_suffix:
+                            await self._edit_forwarded_caption(forwarded_message, message.text or message.caption or "")
+                        
                     logger.info(f"Mensagem {message.id} processada com sucesso.")
                     time.sleep(2)
                 except (MessageIdInvalid, MessageEmpty):

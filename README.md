@@ -64,9 +64,10 @@ Após selecionar uma opção, você será solicitado a confirmar sua escolha ant
 
 ## TODO
 
+- ✅ Adicionar ou remover prefixos e sufixos via config.ini
+- ✅ Adicionar administradores padrão ao criar um novo chat voa config.ini
+- ✅ Adicionar thumbnail se for vídeo
 - [ ] Adicionar funcionalidade de vitrine, enviar resumo da coleção para um chat definido
-- [ ] Adicionar ou remover prefixos e sufixos via config.ini
-- [ ] Adicionar administradores padrão ao criar um novo chat voa config.ini
 - [ ] Adicionar testes automatizados para validação de `InputModel` e fluxos principais.
 - [ ] Refatorar módulos muito longos em componentes menores e mais fáceis de manter.
 

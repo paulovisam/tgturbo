@@ -67,6 +67,58 @@ async def get_video_duration(file_path: str) -> float:
         return 0.0
 
 
+async def get_video_dimensions(file_path: str) -> tuple[int, int]:
+    """Retorna (largura, altura) do primeiro stream de vídeo; (0, 0) se não houver."""
+    cmd = [
+        'ffprobe', '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'stream=width,height',
+        '-of', 'csv=p=0',
+        file_path,
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    stdout, _ = await proc.communicate()
+    line = stdout.decode('utf-8').strip()
+    if not line or ',' not in line:
+        return 0, 0
+    w, _, h = line.partition(',')
+    try:
+        return int(w), int(h)
+    except ValueError:
+        return 0, 0
+
+
+async def extract_video_thumbnail_jpeg(video_path: str, output_jpeg: str) -> bool:
+    """Extrai um frame como JPEG (<=320px de lado) para usar como thumb no Telegram."""
+    dur = await get_video_duration(video_path)
+    if dur and dur > 0:
+        ss = min(1.0, max(0.05, dur * 0.1))
+    else:
+        ss = 0.05
+    parent = os.path.dirname(output_jpeg)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    cmd = [
+        'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+        '-ss', f'{ss:.3f}',
+        '-i', video_path,
+        '-vframes', '1',
+        '-vf', 'scale=320:-1',
+        '-q:v', '3',
+        output_jpeg,
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        logger.warning(f"Falha ao gerar thumbnail: {stderr.decode(errors='replace')}")
+        return False
+    return os.path.isfile(output_jpeg) and os.path.getsize(output_jpeg) > 0
+
+
 async def file_is_corrupted(file_path: str) -> bool:
     """Verifica se o arquivo de vídeo está corrompido."""
     cmd = ['ffprobe', '-v', 'error', '-i', file_path]

@@ -1,4 +1,4 @@
-import os, time
+import os, time, asyncio
 from .base import BaseOperation
 from pyrogram.client import Client
 from pyrogram.types import ChatPrivileges
@@ -7,6 +7,15 @@ from halo import Halo
 from src.progress_tracker import ProgressTracker
 from src.log import logger
 from src.utils import create_path, get_chat_history
+from src.ffmpeg_utils import (
+    needs_reencode,
+    build_ffmpeg_cmd,
+    get_codec,
+    extract_video_thumbnail_jpeg,
+    get_video_dimensions,
+    get_video_duration,
+    is_video_file,
+)
 
 
 class MediaClone(BaseOperation):
@@ -91,6 +100,51 @@ class MediaClone(BaseOperation):
             )
         except MessageNotModified:
             pass
+
+    @staticmethod
+    def _is_clone_video_message(message) -> bool:
+        if message.video:
+            return True
+        doc = message.document
+        return bool(doc and doc.mime_type and doc.mime_type.startswith("video/"))
+
+    async def _video_send_extras(self, message, file_path: str, path_download: str) -> dict:
+        """Thumb + metadados para send_video (evita preview preto / formato de documento)."""
+        extras: dict = {}
+        thumb_path = None
+        if message.video and message.video.thumbs:
+            thumb_path = await self.client.download_media(
+                message.video.thumbs[0].file_id,
+                file_name=f"{path_download}/{message.id}-tg-thumb.jpg",
+            )
+        elif message.document and message.document.thumbs:
+            thumb_path = await self.client.download_media(
+                message.document.thumbs[0].file_id,
+                file_name=f"{path_download}/{message.id}-tg-thumb.jpg",
+            )
+        if not thumb_path and is_video_file(file_path):
+            gen = f"{path_download}/{message.id}-gen-thumb.jpg"
+            if await extract_video_thumbnail_jpeg(file_path, gen):
+                thumb_path = gen
+        if thumb_path:
+            extras["thumb"] = thumb_path
+
+        if message.video:
+            v = message.video
+            extras["duration"] = v.duration or 0
+            extras["width"] = v.width or 0
+            extras["height"] = v.height or 0
+            if v.supports_streaming is not None:
+                extras["supports_streaming"] = v.supports_streaming
+        elif message.document and message.document.mime_type.startswith("video/"):
+            w, h = await get_video_dimensions(file_path)
+            dur = int(await get_video_duration(file_path))
+            if dur > 0:
+                extras["duration"] = dur
+            if w > 0 and h > 0:
+                extras["width"] = w
+                extras["height"] = h
+        return extras
 
     async def run(self):
         self.spinner.start()
@@ -199,10 +253,35 @@ class MediaClone(BaseOperation):
                                     f"Falha ao baixar mídia da mensagem {message.id}"
                                 )
                                 continue
-
-                            # Envia a mídia para o chat de destino.
-                            # Você pode personalizar: se a mídia for foto, use send_photo, etc.
-                            # if message.media.DOCUMENT:
+                            
+                            send_extras: dict = {}
+                            if self._is_clone_video_message(message):
+                                logger.info("Verificando se o vídeo precisa de reencode")
+                                video_codec = await get_codec(file_path, "v")
+                                audio_codec = await get_codec(file_path, "a")
+                                logger.debug(f"Video codec: {video_codec}")
+                                logger.debug(f"Audio codec: {audio_codec}")
+                                if needs_reencode(
+                                    video_codec, audio_codec, file_path
+                                ):
+                                    self.spinner.text = "Reencodando vídeo..."
+                                    cmd = build_ffmpeg_cmd(
+                                        file_path=file_path,
+                                        output_path=file_path,
+                                        video_codec=video_codec,
+                                        audio_codec=audio_codec,
+                                    )
+                                    proc = await asyncio.create_subprocess_exec(*cmd)
+                                    await proc.communicate()
+                                    if proc.returncode != 0:
+                                        logger.error(
+                                            f"Erro ao reencodar vídeo: {proc.stderr.decode()}"
+                                        )
+                                        continue
+                                    self.spinner.succeed("Vídeo reencodado com sucesso.")
+                                send_extras = await self._video_send_extras(
+                                    message, file_path, path_download
+                                )
                             await super().send(
                                 chat_id=self.destination_chat_id,
                                 message=message,
@@ -212,6 +291,7 @@ class MediaClone(BaseOperation):
                                 progress_args=(
                                     [f"Enviando mensagem ID{message.id} |"],
                                 ),
+                                **send_extras,
                             )
 
                         else:

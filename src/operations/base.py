@@ -10,15 +10,43 @@ class BaseOperation:
         self.progress_tracker = progress_tracker
         self.config = None
 
+    @staticmethod
+    def _mime_is_video(mime_type: str | None) -> bool:
+        return bool(mime_type and mime_type.startswith("video/"))
+
     async def send(self, message, *args, **kwargs):
-        if message.document or message.voice:
-            return await self.client.send_document(*args, **kwargs)
+        if message.video:
+            video = kwargs.pop('document')
+            v = message.video
+            send_video_kwargs = {
+                "duration": v.duration or 0,
+                "width": v.width or 0,
+                "height": v.height or 0,
+                "supports_streaming": True
+                if v.supports_streaming is None
+                else v.supports_streaming,
+            }
+            if v.file_name:
+                send_video_kwargs["file_name"] = v.file_name
+            send_video_kwargs.update(kwargs)
+            return await self.client.send_video(video=video, *args, **send_video_kwargs)
+
         if message.audio:
             audio = kwargs.pop('document')
             return await self.client.send_audio(audio=audio, *args, **kwargs)
-        if message.video:
+
+        # Vídeo enviado como "arquivo" vem só como document com mime video/* — send_document vira anexo sem preview.
+        if message.document and self._mime_is_video(message.document.mime_type):
             video = kwargs.pop('document')
-            return await self.client.send_video(video=video, *args, **kwargs)
+            doc = message.document
+            send_video_kwargs = {"supports_streaming": True}
+            if doc.file_name:
+                send_video_kwargs["file_name"] = doc.file_name
+            send_video_kwargs.update(kwargs)
+            return await self.client.send_video(video=video, *args, **send_video_kwargs)
+
+        if message.document or message.voice:
+            return await self.client.send_document(*args, **kwargs)
         if message.photo:
             photo = kwargs.pop('document')
             return await self.client.send_photo(photo=photo, *args, **kwargs)
@@ -28,7 +56,7 @@ class BaseOperation:
             return await self.client.send_video_note(video_note=video_note, *args, **kwargs)
         if message.animation:
             animation = kwargs.pop('document')
-            return await self.client.send_animation(animation=animation*args, **kwargs)
+            return await self.client.send_animation(animation=animation, *args, **kwargs)
         if message.sticker:
             kwargs.pop('caption')
             sticker = kwargs.pop('document')

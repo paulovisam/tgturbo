@@ -5,6 +5,7 @@ from halo import Halo
 from src.progress_tracker import ProgressTracker
 from src.log import logger
 from src.utils import create_path, get_chat_history
+import asyncio
 
 
 class MediaDownloadSingle(BaseOperation):
@@ -30,26 +31,41 @@ class MediaDownloadSingle(BaseOperation):
             chat_id, message_id = self.origin_link.split('/')[-2:]
             chat_id = f"-100{chat_id}"
             message_id = int(message_id)
-            message = await self.client.get_messages(chat_id, message_id)
             chat = await self.client.get_chat(chat_id)
             path_download = create_path(f"./downloads/{chat.title}")
-            media_name = await super().get_media_name(message)
-            file_path = await self.client.download_media(
-                message=message,
-                file_name=f'{path_download}/{message.id}-{media_name}',
-                progress=progress,
-                progress_args=([f"Baixando mensagem ID{message.id} |"],),
-            )
+            file_path = None
+            message = None
+            for attempt in range(3):
+                message = await self.client.get_messages(chat_id, message_id)
+                if message is None or getattr(message, "empty", False):
+                    logger.error("Mensagem não encontrada: %s", message_id)
+                    break
+                media_name = await super().get_media_name(message)
+                try:
+                    file_path = await self.client.download_media(
+                        message=message,
+                        file_name=f"{path_download}/{message.id}-{media_name}",
+                        progress=progress,
+                        progress_args=(
+                            [f"Baixando mensagem ID{message.id} |"],
+                        ),
+                    )
+                    break
+                except FileReferenceExpired:
+                    logger.warning(
+                        "FILE_REFERENCE_EXPIRED (tentativa %s/3); renovando mensagem.",
+                        attempt + 1,
+                    )
+                    await asyncio.sleep(0.4 * (attempt + 1))
+            mid = message.id if message else message_id
             if file_path:
                 logger.info(
-                    f"Mídia da mensagem {message.id} baixada em {file_path}"
+                    f"Mídia da mensagem {mid} baixada em {file_path}"
                 )
             else:
                 logger.warning(
-                    f"Falha ao baixar mídia da mensagem {message.id}"
+                    f"Falha ao baixar mídia da mensagem {mid}"
                 )
-        except FileReferenceExpired as e:
-            logger.error(f"Erro ao baixar mídia: {e}")
         except Exception as e:
             logger.error(f"Erro ao baixar mídia: {e}")
             raise e

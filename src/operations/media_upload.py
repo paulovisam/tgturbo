@@ -16,7 +16,13 @@ from .media_reencode import MediaReencode
 from src.progress_tracker import ProgressTracker
 from src.log import logger
 from src.utils import create_path
-from src.ffmpeg_utils import is_video_file, get_video_duration, split_video
+from src.ffmpeg_utils import (
+    is_video_file,
+    get_video_duration,
+    get_video_dimensions,
+    extract_video_thumbnail_jpeg,
+    split_video,
+)
 
 MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024 - 1024  # ~2GB safe limit (2048 MB - safety margin)
 # Telegram allows up to 2GB (2000MB or 4000MB for premium). 
@@ -404,6 +410,50 @@ Convite: {invite_link}"""
         add_to_tree(start_path)
         return "\n".join(tree_lines)
 
+    async def _send_local_video_file(
+        self,
+        file_path: str,
+        file_name: str,
+        caption: str,
+        video_metadata: dict,
+        progress,
+    ) -> None:
+        """Envia vídeo como player nativo: thumb JPEG + duração/dimensões (evita preview preto)."""
+        meta = video_metadata.get(file_name, {})
+        dur_sec = 0
+        raw_dur = meta.get("duration", 0)
+        if raw_dur not in (None, "", 0, "0"):
+            try:
+                dur_sec = int(float(raw_dur))
+            except (ValueError, TypeError):
+                dur_sec = 0
+        if dur_sec <= 0:
+            dur_sec = int(await get_video_duration(file_path))
+
+        w, h = await get_video_dimensions(file_path)
+        thumb_path = f"{file_path}.tgthumb.jpg"
+        has_thumb = await extract_video_thumbnail_jpeg(file_path, thumb_path)
+        try:
+            kwargs = dict(
+                chat_id=self.destination_chat_id,
+                video=file_path,
+                caption=caption,
+                duration=dur_sec,
+                width=w or 0,
+                height=h or 0,
+                supports_streaming=True,
+                progress=progress,
+            )
+            if has_thumb:
+                kwargs["thumb"] = thumb_path
+            await self.client.send_video(**kwargs)
+        finally:
+            if has_thumb and os.path.isfile(thumb_path):
+                try:
+                    os.remove(thumb_path)
+                except OSError:
+                    pass
+
     async def _step6_upload_content(self, header_info: str, footer_info: str, video_metadata: dict, summary_tree: str):
         self.spinner.text = "Etapa 6: Iniciando envio de arquivos..."
         self.spinner.info("Preparando lotes de envio...")
@@ -457,15 +507,13 @@ Convite: {invite_link}"""
                 # Send
                 try:
                     if is_video_file(file_path):
-                         dur_sec = int(video_metadata.get(file_name, {}).get('duration', 0)) or 0
-                         await self.client.send_video(
-                             chat_id=self.client.destination_chat_id,
-                             video=file_path,
-                             caption=caption,
-                             duration=dur_sec,
-                             supports_streaming=True,
-                             progress=progress
-                         )
+                        await self._send_local_video_file(
+                            file_path,
+                            file_name,
+                            caption,
+                            video_metadata,
+                            progress,
+                        )
                     else:
                          await self.client.send_document(
                              chat_id=self.client.destination_chat_id,

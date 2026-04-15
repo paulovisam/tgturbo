@@ -2,7 +2,13 @@ import os, time, asyncio
 from .base import BaseOperation
 from pyrogram.client import Client
 from pyrogram.types import ChatPrivileges
-from pyrogram.errors import MessageIdInvalid, MessageEmpty, PeerIdInvalid, MessageNotModified
+from pyrogram.errors import (
+    MessageIdInvalid,
+    MessageEmpty,
+    PeerIdInvalid,
+    MessageNotModified,
+    FileReferenceExpired,
+)
 from halo import Halo
 from src.progress_tracker import ProgressTracker
 from src.log import logger
@@ -112,12 +118,12 @@ class MediaClone(BaseOperation):
         """Thumb + metadados para send_video (evita preview preto / formato de documento)."""
         extras: dict = {}
         thumb_path = None
-        if message.video and message.video.thumbs:
+        if message and message.video and message.video.thumbs:
             thumb_path = await self.client.download_media(
                 message.video.thumbs[0].file_id,
                 file_name=f"{path_download}/{message.id}-tg-thumb.jpg",
             )
-        elif message.document and message.document.thumbs:
+        elif message and message.document and message.document.thumbs:
             thumb_path = await self.client.download_media(
                 message.document.thumbs[0].file_id,
                 file_name=f"{path_download}/{message.id}-tg-thumb.jpg",
@@ -129,14 +135,14 @@ class MediaClone(BaseOperation):
         if thumb_path:
             extras["thumb"] = thumb_path
 
-        if message.video:
+        if message and message.video:
             v = message.video
             extras["duration"] = v.duration or 0
             extras["width"] = v.width or 0
             extras["height"] = v.height or 0
             if v.supports_streaming is not None:
                 extras["supports_streaming"] = v.supports_streaming
-        elif message.document and message.document.mime_type.startswith("video/"):
+        elif message and message.document and message.document.mime_type.startswith("video/"):
             w, h = await get_video_dimensions(file_path)
             dur = int(await get_video_duration(file_path))
             if dur > 0:
@@ -145,6 +151,45 @@ class MediaClone(BaseOperation):
                 extras["width"] = w
                 extras["height"] = h
         return extras
+
+    async def _download_clone_media(
+        self,
+        origin_chat_id: int,
+        message_id: int,
+        path_download: str,
+        progress,
+        progress_args: tuple,
+    ):
+        """Baixa mídia com mensagem fresca; renova file_reference se expirou."""
+        last_exc: FileReferenceExpired | None = None
+        for attempt in range(3):
+            fresh = await self.client.get_messages(origin_chat_id, message_id)
+            if fresh is None or getattr(fresh, "empty", False):
+                logger.warning(
+                    "Mensagem %s não encontrada ao obter referência de arquivo.",
+                    message_id,
+                )
+                return None, None
+            media_name = await self.get_media_name(fresh)
+            try:
+                file_path = await self.client.download_media(
+                    fresh,
+                    file_name=f"{path_download}/{message_id}-{media_name}",
+                    progress=progress,
+                    progress_args=progress_args,
+                )
+                return fresh, file_path
+            except FileReferenceExpired as exc:
+                last_exc = exc
+                logger.warning(
+                    "FILE_REFERENCE_EXPIRED na msg %s (tentativa %s/3); buscando mensagem de novo.",
+                    message_id,
+                    attempt + 1,
+                )
+                await asyncio.sleep(0.4 * (attempt + 1))
+        if last_exc:
+            raise last_exc
+        return None, None
 
     async def run(self):
         self.spinner.start()
@@ -239,14 +284,12 @@ class MediaClone(BaseOperation):
                                 self.spinner.text = (
                                     f"{args[0]} {current_mb:.2f}/{total_mb:.2f}MB"
                                 )
-                            media_name = await super().get_media_name(message)
-                            file_path = await self.client.download_media(
-                                message,
-                                file_name=f'{path_download}/{message.id}-{media_name}',
-                                progress=progress,
-                                progress_args=(
-                                    [f"Baixando mensagem ID{message.id} |"],
-                                ),
+                            media_for_file, file_path = await self._download_clone_media(
+                                origin_chat.id,
+                                message.id,
+                                path_download,
+                                progress,
+                                ([f"Baixando mensagem ID{message.id} |"],),
                             )
                             if file_path is None:
                                 logger.warning(
@@ -255,7 +298,7 @@ class MediaClone(BaseOperation):
                                 continue
                             
                             send_extras: dict = {}
-                            if self._is_clone_video_message(message):
+                            if self._is_clone_video_message(media_for_file):
                                 logger.info("Verificando se o vídeo precisa de reencode")
                                 video_codec = await get_codec(file_path, "v")
                                 audio_codec = await get_codec(file_path, "a")
@@ -280,11 +323,11 @@ class MediaClone(BaseOperation):
                                         continue
                                     self.spinner.succeed("Vídeo reencodado com sucesso.")
                                 send_extras = await self._video_send_extras(
-                                    message, file_path, path_download
+                                    media_for_file, file_path, path_download
                                 )
                             await super().send(
                                 chat_id=self.destination_chat_id,
-                                message=message,
+                                message=media_for_file,
                                 document=file_path,
                                 caption=message.caption or "",
                                 progress=progress,

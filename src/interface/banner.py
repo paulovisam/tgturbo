@@ -8,7 +8,7 @@ class Banner:
         self.w = Fore.WHITE
         self.cy = Fore.CYAN
         self.ye = Fore.YELLOW
-        self.r = Fore.RED
+        self.r = Fore.LIGHTBLACK_EX
         self.n = Fore.RESET
 
     def print_banner(self, session_details: list[str] | None = None):
